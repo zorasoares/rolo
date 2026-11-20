@@ -240,10 +240,287 @@ class TestIA(unittest.TestCase):
                          ["ai:generated", "genre:party", "light:neon", "framing:old-term"])
 
 
+class TestAlbuns(Base):
+    def setUp(self):
+        super().setUp()
+        # vintage na cópia do equipment (independe do equipment.yaml real)
+        for cod in ("zuiko28", "zuiko50"):
+            self.eq.lenses[cod]["vintage"] = True
+            self.eq.lenses[cod]["cameras"] = ["OM1n", "EM5II"]
+        self.digital = {"camera": "EM5II", "date": "2026-10-31", "title": "festa", "count": 10}
+
+    def test_prefixo_filme(self):
+        from rolo.campos import album_de
+        fi = {"roll": self.rolo, "ranges": [{"frames": "1-14", "album": "2026 Halloween"},
+                                            {"frames": "15-36", "album": "2026 Eleições", "personal": True}]}
+        q = montar_quadros(fi, 36)
+        self.assertEqual(album_de(self.eq, self.rolo, 3, q[3]), "Analog - 2026 Halloween")
+        self.assertEqual(album_de(self.eq, self.rolo, 20, q[20]), "Analog - 2026 Eleições")  # personal no filme: Analog
+
+    def test_padrao_sem_album(self):
+        from rolo.campos import album_de
+        self.assertEqual(album_de(self.eq, self.rolo, 1, {}), "Analog - 2026 paulista")
+        self.assertEqual(album_de(self.eq, self.digital, 1, {}), "Photography - 2026 festa")
+
+    def test_digital_lentes_misturadas(self):
+        from rolo.campos import album_de
+        fi = {"roll": self.digital, "ranges": [{"frames": "1-4", "lens": "zuiko50", "album": "2026 Halloween"},
+                                               {"frames": "5-10", "album": "2026 Halloween"}]}
+        q = montar_quadros(fi, 10)
+        self.assertEqual({album_de(self.eq, self.digital, n, q[n]) for n in q},
+                         {"Vintage - 2026 Halloween", "Photography - 2026 Halloween"})
+        self.assertEqual(album_de(self.eq, self.digital, 1, {**q[1], "personal": True}), "2026 Halloween")
+
+    def test_digital_grava_lente_explicita(self):
+        args = args_quadro(self.eq, self.digital, 1, {"lens": "zuiko50", "album": "2026 Halloween", "personal": True})
+        self.assertIn("-LensModel=Zuiko 50mm f/1.4", args)
+        self.assertIn("-XMP-iptcExt:Event=2026 Halloween", args)
+        self.assertIn("-XMP-dc:Subject+=personal", args)
+        self.assertFalse(any(a.startswith("-LensModel") for a in args_quadro(self.eq, self.digital, 2, {})))
+        self.assertFalse(any(a.startswith("-DateTimeOriginal") for a in args))  # data continua a da câmera
+
+    def test_digital_ignora_lente_do_rolo(self):
+        self.digital["lens"] = "vivitar80-200"  # `rolo import --lens` num rolo digital
+        self.eq.lenses["vivitar80-200"]["cameras"] = ["OM1n"]
+        args = args_quadro(self.eq, self.digital, 1, {})
+        self.assertFalse(any(a.startswith("-LensModel") for a in args))  # fica a lente gravada pela câmera
+        from rolo.campos import album_de
+        self.assertEqual(album_de(self.eq, self.digital, 1, {}), "Photography - 2026 festa")
+        self.rolo["lens"] = "zuiko28"  # no filme, a lente do rolo continua valendo
+        self.assertIn("-LensModel=Zuiko 28mm f/2.8", args_quadro(self.eq, self.rolo, 1, {}))
+
+    def test_sem_album_nem_personal_limpa(self):
+        args = args_quadro(self.eq, self.rolo, 1, {})
+        self.assertIn("-XMP-iptcExt:Event=", args)
+        self.assertIn("-XMP-dc:Subject-=personal", args)
+        args = args_quadro(self.eq, self.rolo, 1, {"album": "2026 X", "personal": True})
+        self.assertNotIn("-XMP-dc:Subject-=personal", args[-1:])
+        self.assertIn("-XMP-dc:Subject+=personal", args)
+
+    def test_ligado(self):
+        from rolo.util import ligado
+        for v in ("", None, False, "false", "OFF", "No", "0", 0, " off "):
+            self.assertFalse(ligado(v), v)
+        for v in ("on", True, "gphotos:", "1", "yes"):
+            self.assertTrue(ligado(v), v)
+
+    def test_config_chave_antiga_vazia_desliga(self):
+        import io
+        import os
+        from contextlib import redirect_stderr
+        from unittest import mock
+        from rolo.config import Config
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, {"ROLO_IMMICH_ALBUM": "", "ROLO_RCLONE_GPHOTOS": "gphotos:album/X"}), \
+             mock.patch("rolo.config.ARQUIVO", self.tmp / "sem-config.yaml"), redirect_stderr(err):
+            os.environ.pop("ROLO_IMMICH", None)
+            os.environ.pop("ROLO_GPHOTOS", None)
+            cfg = Config()
+        self.assertEqual(cfg["ROLO_IMMICH"], "")
+        self.assertEqual(cfg["ROLO_GPHOTOS"], "gphotos:")  # antiga com valor: só avisa
+        self.assertIn("use ROLO_IMMICH", err.getvalue())
+        self.assertIn("use ROLO_GPHOTOS", err.getvalue())
+
+    def test_lente_vintage_em_camera_nao_listada(self):
+        from rolo.util import Erro
+        self.eq.lenses["vivitar80-200"]["cameras"] = ["OM1n"]
+        with self.assertRaises(Erro) as ctx:
+            args_quadro(self.eq, self.digital, 1, {"lens": "vivitar80-200"})
+        self.assertIn("EM5II", str(ctx.exception))
+
+    def test_historico_une_arquivos_e_albuns(self):
+        F.registrar(self.tmp, "albums", ["a_01", "a_02"], unir=True, albuns={"Analog - X": ["a_01", "a_02"]})
+        F.registrar(self.tmp, "albums", ["a_03"], unir=True, albuns={"Analog - Y": ["a_03"]})
+        h = F.historico(self.tmp)["albums"]
+        self.assertEqual(h["files"], ["a_01", "a_02", "a_03"])
+        self.assertEqual(h["albums"], {"Analog - X": ["a_01", "a_02"], "Analog - Y": ["a_03"]})
+        F.registrar(self.tmp, "print", ["b_01"])
+        F.registrar(self.tmp, "print", ["b_02"])  # sem unir: substitui
+        self.assertEqual(F.historico(self.tmp)["print"]["files"], ["b_02"])
+
+    def test_tira_campos_da_ia(self):
+        from rolo.publicar import args_sem_ia
+        d = {"Subject": ["ai:generated", "genre:party", "film:Kodak Gold 200", "halloween", "People/Ana"],
+             "TagsList": ["ai:generated", "light:neon"], "HierarchicalSubject": "ai:generated", "Keywords": []}
+        args = args_sem_ia(d, {"genre", "light"}, {"title": "Festa"})
+        self.assertIn("-XMP-dc:Title=Festa", args)                # título do roll.yaml fica
+        self.assertIn("-XMP-dc:Description=", args)               # descrição da IA sai
+        self.assertIn("-XMP-dc:Subject-=ai:generated", args)
+        self.assertIn("-XMP-dc:Subject-=genre:party", args)
+        self.assertIn("-XMP-digiKam:TagsList-=light:neon", args)
+        self.assertIn("-XMP-lr:HierarchicalSubject-=ai:generated", args)
+        self.assertFalse(any(k in a for a in args for k in ("film:", "halloween", "People/")))
+
+    def test_status_apply_depois_do_envio(self):
+        from rolo.status import OK, PENDENTE, etapa_albuns
+        eleg = [Path("/x/a_01.tif"), Path("/x/a_02.tif")]
+        hist = {"albums": {"at": "2026-11-20 10:00", "files": ["a_01", "a_02"], "albums": {"Analog - X": ["a_01", "a_02"]}},
+                "apply": {"at": "2026-11-20 11:00"}}
+        e = etapa_albuns(hist, eleg, "r")
+        self.assertEqual(e.estado, OK)
+        self.assertIn("dados antigos no Immich/Google", e.detalhe)
+        self.assertEqual(etapa_albuns({"portfolio": {"at": "2026-01-01 00:00", "files": ["a_01", "a_02"]}},
+                                      eleg, "r").estado, OK)  # portfolio legado conta como enviado
+        e = etapa_albuns({"albums": {"at": "2026-11-20 10:00", "files": ["a_01"]}}, eleg, "r")
+        self.assertEqual((e.estado, e.detalhe.split()[0]), (PENDENTE, "1"))
+        self.assertEqual(etapa_albuns({}, eleg, "r").estado, PENDENTE)
+
+    def test_remoto_gphotos(self):
+        from rolo.publicar import _remoto_gphotos
+        self.assertEqual(_remoto_gphotos("gphotos:", "Analog - X"), "gphotos:album/Analog - X")
+        self.assertEqual(_remoto_gphotos("gphotos:fotos", "Y"), "gphotos:fotos/album/Y")
+
+
+class TestEnvioAlbuns(Base):
+    """rolo albums com exportação e envio simulados: o que é enviado, para onde e o que fica registrado."""
+
+    class Cfg:
+        def __init__(self, tmp, **valores):
+            self.outbox = tmp / "_outbox"
+            self.valores = {"ROLO_IMMICH": "on", "ROLO_GPHOTOS": "gphotos:", **valores}
+
+        def __getitem__(self, chave):
+            return self.valores[chave]
+
+        def resolver(self, caminho, *bases):
+            return Path(caminho)
+
+        def relativo(self, caminho):
+            return Path(caminho)
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+        from rolo import publicar
+        self.pasta = self.tmp / "rolo"
+        self.pasta.mkdir()
+        self.arqs = [self.pasta / f"r_{n:02}.tif" for n in range(1, 5)]
+        for a in self.arqs:
+            a.touch()
+        self.rolo["count"] = 4
+        F.gravar(self.pasta, {"roll": self.rolo, "ranges": [{"frames": "1-2", "album": "2026 Halloween"},
+                                                            {"frames": "3-4", "album": "2026 Eleições"}]})
+        self.selecao = list(self.arqs)
+        self.comandos = []
+        for alvo, efeito in (("para_portfolio", lambda pasta, modo: list(self.selecao)),
+                             ("exportar", lambda a, destino, lado, q: destino.touch()),
+                             ("_conferir", lambda a, jpg: []),
+                             ("precisa", lambda *p: None),
+                             ("rodar", lambda cmd, **kw: self.comandos.append(cmd))):
+            m = mock.patch.object(publicar, alvo, side_effect=efeito)
+            m.start()
+            self.addCleanup(m.stop)
+
+    def rodar_albums(self, cfg=None, dry_run=False, force=False):
+        from types import SimpleNamespace
+        from rolo.publicar import albums
+        self.comandos.clear()
+        albums(cfg or self.Cfg(self.tmp), self.eq, SimpleNamespace(folder=self.pasta, dry_run=dry_run, force=force))
+
+    def conferir(self, problemas):
+        """_conferir devolve `problemas` para r_02 e nada para as outras."""
+        from unittest import mock
+        from rolo import publicar
+        m = mock.patch.object(publicar, "_conferir", side_effect=lambda a, jpg: problemas if a.stem == "r_02" else [])
+        m.start()
+        self.addCleanup(m.stop)
+
+    def test_destinos_desligados_por_off_false_no_0(self):
+        for valor in ("off", "False", "no", "0", ""):
+            self.selecao = list(self.arqs)
+            (self.pasta / ".rolo-history.yaml").unlink(missing_ok=True)
+            self.rodar_albums(self.Cfg(self.tmp, ROLO_IMMICH=valor))
+            self.assertEqual({c[0] for c in self.comandos}, {"rclone"}, valor)
+
+    def test_share_false_como_texto(self):
+        self.rolo["share"] = "false"
+        F.gravar(self.pasta, {"roll": self.rolo, "ranges": []})
+        self.rodar_albums()
+        self.assertEqual(self.comandos, [])
+
+    def test_sem_destino_nao_registra(self):
+        self.rodar_albums(self.Cfg(self.tmp, ROLO_IMMICH="", ROLO_GPHOTOS=""))
+        self.assertEqual(self.comandos, [])
+        self.assertNotIn("albums", F.historico(self.pasta))
+        self.rodar_albums()  # destino ligado depois: envia tudo
+        self.assertEqual(len([c for c in self.comandos if c[0] == "immich"]), 2)
+        self.assertEqual(F.historico(self.pasta)["albums"]["files"], ["r_01", "r_02", "r_03", "r_04"])
+
+    def test_ia_nao_revisada_sai_sem_campos_da_ia_e_e_enviada(self):
+        from unittest import mock
+        from rolo import publicar
+        self.conferir(["descrição da IA ainda não revisada (tag ai:generated)"])
+        gravados = []
+        with mock.patch.object(publicar, "exif_ler", return_value={}) as ler, \
+             mock.patch.object(publicar, "exif_gravar", side_effect=gravados.extend), \
+             mock.patch.object(publicar, "_vocabulario", return_value={"genre": ["party"]}):
+            ler.side_effect = lambda arqs, *t: {str(arqs[0]): {"Subject": ["ai:generated", "genre:party"]}}
+            self.rodar_albums()
+        self.assertEqual([jpg.name for jpg, _ in gravados], ["r_02.jpg"])
+        self.assertIn("-XMP-dc:Subject-=ai:generated", gravados[0][1])
+        self.assertIn("-XMP-dc:Subject-=genre:party", gravados[0][1])
+        self.assertIn("r_02", F.historico(self.pasta)["albums"]["files"])
+        final = self.tmp / "_outbox" / "albuns" / "Analog - 2026 Halloween"
+        self.assertTrue((final / "r_02.jpg").exists())
+
+    def test_exif_incompleto_bloqueia_ate_corrigir(self):
+        self.conferir(["faltou GPSLatitude"])
+        self.rodar_albums()
+        self.assertNotIn("r_02", F.historico(self.pasta)["albums"]["files"])
+        self.assertFalse((self.tmp / "_outbox" / "albuns" / "Analog - 2026 Halloween" / "r_02.jpg").exists())
+        self.conferir([])
+        self.rodar_albums()
+        self.assertEqual([c[3] for c in self.comandos if c[0] == "immich"], ["Analog - 2026 Halloween"])
+        self.assertIn("r_02", F.historico(self.pasta)["albums"]["files"])
+
+    def test_exif_incompleto_com_force(self):
+        self.conferir(["faltou GPSLatitude"])
+        self.rodar_albums(force=True)
+        self.assertIn("r_02", F.historico(self.pasta)["albums"]["files"])
+        self.assertTrue((self.tmp / "_outbox" / "albuns" / "Analog - 2026 Halloween" / "r_02.jpg").exists())
+
+    def test_envia_um_album_por_sessao(self):
+        self.rodar_albums()
+        albuns_immich = sorted(c[3] for c in self.comandos if c[0] == "immich")
+        self.assertEqual(albuns_immich, ["Analog - 2026 Eleições", "Analog - 2026 Halloween"])
+        remotos = sorted(c[3] for c in self.comandos if c[0] == "rclone")
+        self.assertEqual(remotos, ["gphotos:album/Analog - 2026 Eleições", "gphotos:album/Analog - 2026 Halloween"])
+        final = self.tmp / "_outbox" / "albuns" / "Analog - 2026 Halloween"
+        self.assertEqual(sorted(p.name for p in final.iterdir()), ["r_01.jpg", "r_02.jpg"])
+        self.assertEqual(F.historico(self.pasta)["albums"]["files"], ["r_01", "r_02", "r_03", "r_04"])
+
+    def test_segunda_execucao_envia_so_as_novas(self):
+        self.selecao = self.arqs[:3]
+        self.rodar_albums()
+        self.selecao = list(self.arqs)
+        self.rodar_albums()
+        self.assertEqual([c[3] for c in self.comandos if c[0] == "immich"], ["Analog - 2026 Eleições"])
+        enviados = [p.name for p in (self.tmp / "_outbox" / "albuns" / "Analog - 2026 Eleições").iterdir()]
+        self.assertEqual(sorted(enviados), ["r_03.jpg", "r_04.jpg"])
+        self.rodar_albums()
+        self.assertEqual(self.comandos, [])  # nada novo
+
+    def test_destino_desligado(self):
+        self.rodar_albums(self.Cfg(self.tmp, ROLO_GPHOTOS=""))
+        self.assertEqual({c[0] for c in self.comandos}, {"immich"})
+
+    def test_share_false_so_exporta(self):
+        self.rolo["share"] = False
+        F.gravar(self.pasta, {"roll": self.rolo, "ranges": []})
+        self.rodar_albums()
+        self.assertEqual(self.comandos, [])
+        self.assertTrue((self.tmp / "_outbox" / "albuns" / "Analog - 2026 paulista" / "r_01.jpg").exists())
+
+    def test_dry_run_nao_envia_nem_registra(self):
+        self.rodar_albums(dry_run=True)
+        self.assertEqual(self.comandos, [])
+        self.assertNotIn("albums", F.historico(self.pasta))
+
+
 class TestDocumentacao(unittest.TestCase):
     def test_cabecalho_lista_todos_os_campos(self):
         from rolo.campos import FIELDS
-        faltando = [c for c in FIELDS if c not in F.CABECALHO]
+        faltando = [c for c in FIELDS + ["share"] if c not in F.CABECALHO]
         self.assertEqual(faltando, [], "campos de FIELDS ausentes do CABECALHO do roll.yaml")
 
 

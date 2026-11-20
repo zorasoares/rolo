@@ -9,7 +9,7 @@ from .util import Erro, escolher, interativo
 from .yamlio import carregar, despejar
 
 NOME = "roll.yaml"
-HISTORICO = ".rolo-history.yaml"  # quando apply/print/portfolio terminaram (lido pelo `rolo status`)
+HISTORICO = ".rolo-history.yaml"  # quando apply/print/albums terminaram (lido pelo `rolo status`)
 
 CABECALHO = """\
 # Roll sheet — read by `rolo apply`.
@@ -20,12 +20,15 @@ CABECALHO = """\
 #   `rolo import` already renamed them in film order).
 # roll.files_reversed: true = files were NOT renamed, so file _01 is the LAST frame of the film.
 #   Exif Notes frames are mapped and range times run from the highest file to the lowest.
+# roll.share: false = commissioned roll: `rolo albums` only exports to _outbox/albuns/, no upload.
 #
 # Fields accepted in ranges and frames:
 #   lens, focal_length, aperture ("8"), shutter ("1/125"), flash (true/false), light,
 #   date ("2026-11-15 14:30"), lat, lon (decimal degrees, negative = S/W),
 #   location, sublocation, city, state, country, title, description, people, keywords,
-#   filters, exposures
+#   filters, exposures,
+#   album (session, e.g. "2026 Halloween"; album = "Analog - 2026 Halloween"; default "<year> <roll title>"),
+#   personal (true = family photo: keyword personal; digital album without the Analog/Vintage/Photography prefix)
 # A range may have start/end ("2026-11-15 14:00") to spread capture times.
 #
 # Range example:
@@ -39,11 +42,12 @@ CABECALHO = """\
 #     country: Brazil
 #     start: 2026-11-15 14:00
 #     end: 2026-11-15 15:10
+#     album: 2026 Halloween
 
 """
 
 ORDEM_ROLO = ["folder", "camera", "film", "lens", "date", "iso", "title", "count", "offset",
-              "scan_order", "files_reversed"]
+              "scan_order", "files_reversed", "share"]
 ORDEM_ITEM = ["n", "frames", "source"] + FIELDS + ["start", "end"]
 
 
@@ -80,12 +84,21 @@ def historico(pasta):
     return carregar(p) if p.exists() else {}
 
 
-def registrar(pasta, etapa, arquivos=None):
-    """Anota no .rolo-history.yaml que `etapa` terminou agora (e com quais arquivos, se for envio)."""
+def registrar(pasta, etapa, arquivos=None, unir=False, albuns=None):
+    """Anota no .rolo-history.yaml que `etapa` terminou agora (e com quais arquivos, se for envio).
+    unir: soma os arquivos (e álbuns) aos já registrados, em vez de substituir.
+    albuns: {nome do álbum: [arquivos]} enviados nesta execução."""
     h = historico(pasta)
+    antes = (h.get(etapa) or {}) if unir else {}
     h[etapa] = {"at": dt.datetime.now().strftime("%Y-%m-%d %H:%M")}
-    if arquivos is not None:
-        h[etapa]["files"] = sorted(Path(a).stem for a in arquivos)
+    if arquivos is not None or antes.get("files"):
+        novos = {Path(a).stem for a in arquivos or []}
+        h[etapa]["files"] = sorted(novos | set(antes.get("files") or []))
+    if albuns is not None or antes.get("albums"):
+        todos = {k: set(v or []) for k, v in (antes.get("albums") or {}).items()}
+        for nome, arqs in (albuns or {}).items():
+            todos.setdefault(nome, set()).update(Path(a).stem for a in arqs)
+        h[etapa]["albums"] = {k: sorted(v) for k, v in sorted(todos.items())}
     (Path(pasta) / HISTORICO).write_text(despejar(h), encoding="utf-8")
 
 

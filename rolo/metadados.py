@@ -1,6 +1,7 @@
 """rolo sheet (monta o roll.yaml com o Exif Notes) e rolo apply (grava a ficha nos arquivos)."""
 from . import ficha as F
 from .campos import args_base, args_quadro, montar_quadros, quadro_do_arquivo
+from .publicar import reindexar_photoprism
 from .util import Erro, escolher, exif_gravar, imagens, interativo, trava
 
 
@@ -115,3 +116,4 @@ def aplicar(cfg, eq, args):
         F.registrar(pasta, "apply")
     resumo(fi)
     print(f"\nGravado em {len(lotes)} arquivos. Nota e etiquetas do digiKam foram preservadas.")
+    reindexar_photoprism(cfg, pasta)

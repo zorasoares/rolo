@@ -19,6 +19,11 @@ class Erro(Exception):
     """Erro esperado: mostrado ao usuário sem traceback."""
 
 
+def ligado(valor):
+    """Chave liga/desliga (config ou roll.yaml): "", false, off, no, 0 (sem diferenciar maiúsculas) = desligado."""
+    return str(valor if valor is not None else "").strip().lower() not in ("", "false", "off", "no", "0")
+
+
 def interativo():
     return sys.stdin.isatty() and sys.stdout.isatty()
 
