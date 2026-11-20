@@ -1,0 +1,24 @@
+# Copie para ~/.config/rolo/config.yaml em cada máquina e ajuste.
+# Qualquer chave também pode vir de variável de ambiente (que tem prioridade).
+# `rolo config` mostra os valores ativos e de onde vieram.
+
+# ---------------- PC (dia a dia)
+FOTOS_ROOT: ~/fotos                      # montagem NFS de servidor:/srv/data/fotos
+OLLAMA_HOST: http://localhost:11434
+ROLO_AI_MODEL: qwen2.5vl:7b              # ou gemma3:12b
+# ROLO_TAGS: ~/fotos/_workflow/tags.yaml  # padrão: {FOTOS_ROOT}/_workflow/tags.yaml
+ROLO_DIGIKAM_DB: ~/.local/share/digikam/digikam4.db
+ROLO_PHOTOPRISM_INDEX_CMD: ssh servidor 'cd /opt/photoprism && docker compose exec -T photoprism photoprism index {folder}'
+
+# ---------------- Servidor (descomente lá)
+# FOTOS_ROOT: /srv/data/fotos
+# OLLAMA_HOST: http://pc.local:11434      # usa a GPU do PC se ele estiver ligado
+# ROLO_AI_MODEL: qwen2.5vl:3b             # modelo menor se rodar local no servidor
+# ROLO_PHOTOPRISM_INDEX_CMD: cd /opt/photoprism && docker compose exec -T photoprism photoprism index {folder}
+
+# ---------------- destinos (iguais nas duas máquinas)
+ROLO_RCLONE_LAB: "drive:"
+ROLO_RCLONE_PRINT: "drive:Gráfica"
+ROLO_RCLONE_GPHOTOS: "gphotos:album/Portfólio"
+ROLO_RCLONE_BACKUP: "drive:Fotos"
+ROLO_IMMICH_ALBUM: Portfólio

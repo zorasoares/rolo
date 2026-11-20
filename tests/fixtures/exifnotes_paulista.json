@@ -1,0 +1,74 @@
+{
+    "id": 1,
+    "name": "paulista",
+    "date": "2026-11-15T16:20",
+    "camera": {
+        "id": 1,
+        "make": "Olympus",
+        "model": "Olympus OM-1n",
+        "serialNumber": "1234",
+        "format": "MM35"
+    },
+    "iso": 250,
+    "format": "MM35",
+    "filmStock": {
+        "id": 69,
+        "make": "Kodak",
+        "model": "EASTMAN DOUBLE-X 5222",
+        "iso": 250,
+        "type": "MotionPictureBWNegative"
+    },
+    "frames": [
+        {
+            "id": 1,
+            "rollId": 1,
+            "count": 1,
+            "date": "2026-11-17T23:06",
+            "shutter": "1/60",
+            "aperture": "4.0",
+            "location": {
+                "latitude": -23.5614140,
+                "longitude": -46.6558810
+            },
+            "formattedAddress": "Av. Paulista, 1578 - Bela Vista, S\u00e3o Paulo - SP, 01310-200, Brazil",
+            "focalLength": 50,
+            "noOfExposures": 1,
+            "flashUsed": true,
+            "lightSource": "Daylight",
+            "lens": {
+                "id": 2,
+                "make": "Olympus",
+                "model": "50mm 1.4 Zuiko MC",
+                "serialNumber": "100001"
+            },
+            "filters": [
+                {
+                    "id": 1,
+                    "make": "hoya",
+                    "model": "skylight 1B"
+                }
+            ]
+        },
+        {
+            "id": 2,
+            "rollId": 1,
+            "count": 8,
+            "date": "2026-11-17T23:06",
+            "note": "maria",
+            "location": {
+                "latitude": -23.5613960,
+                "longitude": -46.6558320
+            },
+            "formattedAddress": "Av. Paulista, 1500 - Bela Vista, S\u00e3o Paulo - SP, 01310-200, Brazil",
+            "noOfExposures": 1,
+            "flashUsed": false,
+            "lightSource": "Daylight",
+            "lens": {
+                "id": 3,
+                "make": "Vivitar",
+                "model": "80-200mm 4.5 MC Zoom",
+                "serialNumber": "200002"
+            }
+        }
+    ]
+}

@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+config.yaml
+NOTAS-LOCAIS.md
+.claude/
+_bmad/
+_bmad-output/
