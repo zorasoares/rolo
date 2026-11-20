@@ -239,5 +239,13 @@ class TestIA(unittest.TestCase):
         self.assertEqual(_keywords_ia_antigas(atuais, set(self.VOCAB) | {"framing"}, set()),
                          ["ai:generated", "genre:party", "light:neon", "framing:old-term"])
 
+
+class TestDocumentacao(unittest.TestCase):
+    def test_cabecalho_lista_todos_os_campos(self):
+        from rolo.campos import FIELDS
+        faltando = [c for c in FIELDS if c not in F.CABECALHO]
+        self.assertEqual(faltando, [], "campos de FIELDS ausentes do CABECALHO do roll.yaml")
+
+
 if __name__ == "__main__":
     unittest.main()
