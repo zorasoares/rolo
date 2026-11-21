@@ -1,28 +1,10 @@
-"""rolo download / backup / check."""
+"""rolo backup / check."""
 import datetime as dt
 import re
 import sqlite3
 from pathlib import Path
 
 from .util import EXT_IMAGEM, MESES, RE_VERSAO, Erro, exif_ler, imagens, precisa, rodar
-
-
-def baixar(cfg, eq, args):
-    precisa("rclone")
-    m = re.search(r"folders/([\w-]+)|[?&]id=([\w-]+)", args.link)
-    if m:
-        pasta_id = m[1] or m[2]
-        origem = [cfg["ROLO_RCLONE_LAB"], "--drive-root-folder-id", pasta_id]
-    else:
-        origem = [args.link]  # já é um caminho rclone (remoto:pasta)
-        pasta_id = re.sub(r"\W+", "-", args.link.split(":")[-1]).strip("-") or "lab"
-    nome = args.name or f"{dt.date.today():%Y%m%d}-{pasta_id[:8]}"
-    destino = cfg.inbox / nome
-    destino.mkdir(parents=True, exist_ok=True)
-    print(f"Baixando para {cfg.relativo(destino)} …")
-    rodar(["rclone", "copy", origem[0], str(destino), *origem[1:], "--progress"])
-    print(f"\n{len(imagens(destino))} imagem(ns) em {cfg.relativo(destino)}")
-    print("Próximo: rolo import")
 
 
 def backup(cfg, eq, args):

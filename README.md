@@ -3,8 +3,7 @@
 Fluxo de fotografia (filme e digital) num comando só. O mesmo código roda no **servidor** e no **PC**; muda só `~/.config/rolo/config.yaml`.
 
 ```
-rolo download LINK        → _inbox/
-rolo import               → menu (câmera/filme/lente de equipment.yaml, ordem dos scans) → AAAA/MM-mes/AAAAMMDD-CAM-filme-titulo/
+rolo import [PASTA]       → menu (câmera/filme/lente de equipment.yaml, ordem dos scans) → AAAA/MM-mes/AAAAMMDD-CAM-filme-titulo/
   digiKam: classificar      nota, pick (recusadas ficam de fora), etiqueta verde (gráfica)
   RapidRAW: editar          exporta NOME_edited.jpg na pasta do rolo (classificação só no digiKam)
 rolo print PASTA          → verdes em JPG → Drive da gráfica
@@ -29,8 +28,10 @@ Arquivos:
 | `$FOTOS_ROOT/_workflow/tags.yaml` | vocabulário de tags do `rolo ai` (a IA só escolhe daqui) |
 | `$FOTOS_ROOT/_workflow/tags-suggested.txt` | termos que a IA quis marcar fora do vocabulário, para promover ao `tags.yaml` |
 | `PASTA/roll.yaml` | ficha do rolo: dados do rolo, faixas (skill/manual) e quadros (Exif Notes) |
-| `$FOTOS_ROOT/_inbox/` | downloads do lab e JSON do Exif Notes |
+| `$FOTOS_ROOT/_inbox/` | opcional: pastas de scans para o menu do `rolo import` e JSON do Exif Notes |
 | `$FOTOS_ROOT/_outbox/` | JPGs gerados (`print/`, `albuns/<álbum>/`; `albuns/_staging/` durante o envio e no `--dry-run`) |
+
+**De onde importar**: `rolo import` sem argumento mostra as pastas de `_inbox/`; com PASTA, aceita qualquer pasta (`rolo import .`, `rolo import ~/Downloads/rolo12`). Dentro de `_inbox/` os arquivos são **movidos** e a pasta vazia é apagada; fora, são **copiados** e a origem fica intacta, para você apagar depois de conferir. Caminho relativo sem `./` procura primeiro em `_inbox/`, depois no diretório atual; `.`, `./x` e `../x` são sempre do diretório atual.
 
 **Scans em ordem invertida** (o lab escaneou do fim para o começo, último scan = quadro 1): o `rolo import` pergunta (ou `--reversed`) e renomeia na ordem do filme; a ficha registra `scan_order: reversed`. Para uma pasta já importada sem essa correção, `rolo sheet PASTA --reversed` grava `files_reversed: true` sem renomear nada: os quadros do Exif Notes são remapeados (arquivo = total + 1 − quadro), os horários das faixas correm do último arquivo para o primeiro e o `ImageNumber` recebe o quadro do filme. Se a ficha não disser a ordem, o `rolo sheet` pergunta.
 
