@@ -16,6 +16,7 @@ CABECALHO = """\
 # Priority: Exif Notes frames > manual/skill frames > ranges > roll.
 # Lenses always by their code in equipment.yaml.
 # Frame numbers below are FILE numbers (_01, _02…).
+# source: adopt = copied from the EXIF the files already had (`rolo adopt`, folder organised by hand).
 # roll.scan_order: how the lab delivered the scans (reversed = last scan was frame 1;
 #   `rolo import` already renamed them in film order).
 # roll.files_reversed: true = files were NOT renamed, so file _01 is the LAST frame of the film.

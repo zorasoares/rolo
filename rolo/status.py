@@ -7,6 +7,7 @@ from pathlib import Path
 
 from . import ficha as F
 from .campos import TAG_AI, args_base, args_quadro, montar_quadros, quadro_do_arquivo
+from .manutencao import ignorada
 from .metadados import _faixas
 from .publicar import DIGIKAM_ID, _cor
 from .util import TAGS_PICK, Erro, exif_ler, imagens, pick
@@ -208,8 +209,7 @@ def _mostrar_rolo(cfg, eq, pasta):
 
 
 def _pastas_de_rolo(cfg):
-    return sorted(p.parent for p in cfg.root.rglob(F.NOME)
-                  if not any(x.startswith("_") for x in p.relative_to(cfg.root).parts))
+    return sorted(p.parent for p in cfg.root.rglob(F.NOME) if not ignorada(cfg, p))
 
 
 def _panorama(cfg, eq, todos):
@@ -240,11 +240,11 @@ def _panorama(cfg, eq, todos):
         print()
     rolos = set(_pastas_de_rolo(cfg))
     antigas = {p.parent for p in cfg.root.rglob("*") if p.is_file() and p.suffix.lower() in (".jpg", ".tif", ".tiff", ".dng")
-               and not any(x.startswith("_") for x in p.relative_to(cfg.root).parts)} - rolos
+               and not ignorada(cfg, p)} - rolos
     if concluidos and not todos:
         print(f"{concluidos} rolo(s) concluído(s) (--all para ver).")
     if antigas:
-        print(f"{len(antigas)} pasta(s) sem roll.yaml, fora do fluxo (veja `rolo check`).")
+        print(f"{len(antigas)} pasta(s) sem roll.yaml, fora do fluxo (`rolo adopt` traz para o fluxo; veja `rolo check`).")
     print("Detalhes de um rolo: rolo status PASTA")
 
 
@@ -257,5 +257,6 @@ def executar(cfg, eq, args):
         _panorama(cfg, eq, args.all)
         return
     if not F.caminho(pasta).exists():
-        raise Erro(f"{cfg.relativo(pasta)} não tem roll.yaml (não passou pelo `rolo import`).")
+        raise Erro(f"{cfg.relativo(pasta)} não tem roll.yaml (não passou pelo `rolo import`; "
+                   f"se foi organizada à mão: `rolo adopt {cfg.relativo(pasta)}`).")
     _mostrar_rolo(cfg, eq, pasta)
