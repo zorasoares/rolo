@@ -106,7 +106,10 @@ class TestFicha(Base):
     def test_lente_de_outra_camera(self):
         self.rolo["camera"] = "PEN-EES2"
         args = args_quadro(self.eq, self.rolo, 1, {"lens": "zuiko50"})
-        self.assertFalse(any(a.startswith("-LensModel") for a in args))  # lente fixa: sem tags de lente
+        # lente fixa: sempre a dela, mesmo com outra lente no quadro
+        self.assertIn("-LensModel=D.Zuiko 30mm f/2.8", args)
+        self.assertIn("-FocalLength=30", args)
+        self.assertFalse(any("Zuiko 50mm" in a for a in args))
 
 
 class TestEquipamentos(Base):
@@ -565,6 +568,137 @@ class TestEnvioAlbuns(Base):
         self.rodar_albums(dry_run=True)
         self.assertEqual(self.comandos, [])
         self.assertNotIn("albums", F.historico(self.pasta))
+
+
+class TestAdotar(Base):
+    """rolo adopt: roll.yaml a partir do nome da pasta e do EXIF existente, fotos dadas como já enviadas."""
+
+    def setUp(self):
+        super().setUp()
+        import os
+        from unittest import mock
+        from rolo.config import Config
+        with mock.patch.dict(os.environ, {"FOTOS_ROOT": str(self.tmp / "acervo")}):
+            self.cfg = Config()
+        self.pasta = self.cfg.root / "2026" / "08-agosto" / "20260801-OM1n-sunny400-serra-negra"
+        self.pasta.mkdir(parents=True)
+        self.arqs = [self.pasta / f"om1n-sunny400-serra-negra_20260801_{n:02}.jpg" for n in (1, 2, 3)]
+        for a in self.arqs:
+            a.touch()
+        self.exif = {str(self.arqs[0]): {"DateTimeOriginal": "2026:08:01 10:15:00", "LensModel": "Zuiko 28mm f2.8",
+                                         "GPSLatitude": -22.6, "GPSLongitude": -46.7, "City": "Serra Negra",
+                                         "ISO": 400, "Subject": ["personal", "film:Sunny 400"]},
+                     str(self.arqs[1]): {"LensModel": "Olympus Zuiko 50mm f1.4", "ISO": 400, "Event": "2026 Serra"},
+                     str(self.arqs[2]): {"LensModel": "Zuiko 28mm f2.8", "ISO": 400}}
+        self.aplicados = []
+
+    def adotar(self, pasta=None, **kw):
+        from unittest import mock
+        from rolo import adotar
+        with mock.patch.object(adotar, "exif_ler", return_value=self.exif), \
+             mock.patch.object(adotar, "aplicar", side_effect=lambda cfg, eq, a: self.aplicados.append(a.folder)):
+            adotar.adotar(self.cfg, self.eq, pasta or self.pasta, **kw)
+
+    def test_nome_com_codigos_antigos(self):
+        from rolo.manutencao import ler_nome
+        n = ler_nome(self.eq, "20260510-PEN-EES-2-Sunny400-VoltaRio")
+        self.assertEqual((n["camera"], n["film"], n["title"], n["camera_legado"], n["film_legado"]),
+                         ("PEN-EES2", "kodakvision3-250d", "VoltaRio", True, True))
+        n = ler_nome(self.eq, "20260913-E-M5MarkII-itororo")
+        self.assertEqual((n["camera"], n["film"], n["title"]), ("EM5II", None, "itororo"))
+        self.assertIsNone(ler_nome(self.eq, "2021025-OM1n-kodakdoublex-eleicoes"))
+
+    def test_lente_aceita_marca_na_frente(self):
+        from rolo.adotar import lente_do_exif
+        self.assertEqual(lente_do_exif(self.eq, "OM1n", "Zuiko 50mm f1.4"), "zuiko50")
+        self.assertEqual(lente_do_exif(self.eq, "OM1n", "Olympus Zuiko 28mm f2.8"), "zuiko28")
+        self.assertEqual(lente_do_exif(self.eq, "OM1n", "Vivitar Vivitar 80-200mm f4.5"), "vivitar80-200")
+        self.assertIsNone(lente_do_exif(self.eq, "OM1n", "D.Zuiko 30mm f2.8"))  # lente fixa da PEN
+
+    def test_ficha_vem_do_exif_e_fotos_ficam_enviadas(self):
+        self.adotar()
+        fi = F.ler(self.pasta)
+        rolo = fi["roll"]
+        self.assertEqual((rolo["camera"], rolo["film"], rolo["lens"], rolo["iso"], rolo["date"], rolo["count"]),
+                         ("OM1n", "kodakvision3-250d", "zuiko28", 400, "2026-08-01", 3))
+        q = {x["n"]: x for x in fi["frames"]}
+        self.assertEqual((q[1]["date"], q[1]["lat"], q[1]["city"], q[1]["personal"], q[1]["source"]),
+                         ("2026-08-01 10:15:00", -22.6, "Serra Negra", True, "adopt"))
+        self.assertEqual((q[2]["lens"], q[2]["album"]), ("zuiko50", "2026 Serra"))
+        self.assertNotIn(3, q)  # nada além da lente do rolo
+        h = F.historico(self.pasta)
+        self.assertEqual(h["portfolio"]["files"], sorted(a.stem for a in self.arqs))
+        self.assertEqual(self.aplicados, [str(self.pasta)])
+
+    def test_zoom_guarda_focal_do_arquivo(self):
+        self.exif[str(self.arqs[1])].update({"LensModel": "Vivitar Vivitar 80-200mm f4.5", "FocalLength": 80.0})
+        self.exif[str(self.arqs[2])].update({"LensModel": "Vivitar 80-200mm f/4.5", "FocalLength": 200.0})
+        self.adotar()
+        fi = F.ler(self.pasta)
+        q = {x["n"]: x for x in fi["frames"]}
+        self.assertEqual((fi["roll"]["lens"], q[1]["lens"], q[2]["focal_length"]), ("vivitar80-200", "zuiko28", 80))
+        self.assertNotIn(3, q)  # 200 é a focal padrão da lente do rolo
+
+    def test_unsent_dry_run_e_sem_apply(self):
+        self.adotar(enviadas=False, padronizar=False)
+        self.assertNotIn("portfolio", F.historico(self.pasta))
+        self.assertEqual(self.aplicados, [])
+        F.caminho(self.pasta).unlink()
+        self.adotar(simular=True)
+        self.assertFalse(F.caminho(self.pasta).exists())
+        self.assertEqual(self.aplicados, [])
+
+    def test_recusa(self):
+        from rolo.util import Erro
+        self.adotar()
+        with self.assertRaisesRegex(Erro, "já tem roll.yaml"):
+            self.adotar()
+        outra = self.pasta.parent / "20260815-EM5II-pessoais"
+        outra.mkdir()
+        (outra / "a.dng").touch()
+        (outra / "a.xmp").touch()
+        with self.assertRaisesRegex(Erro, "sidecar"):
+            self.adotar(outra)
+        torta = self.pasta.parent / "2021025-OM1n-kodakdoublex-eleicoes"
+        torta.mkdir()
+        (torta / "a.jpg").touch()
+        with self.assertRaisesRegex(Erro, "fora do padrão"):
+            self.adotar(torta)
+
+    def test_varias_pastas_pula_as_que_nao_podem(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        from rolo import adotar
+        lixeira = self.cfg.root / "2026" / ".dtrash" / "files"
+        lixeira.mkdir(parents=True)
+        (lixeira / "x.jpg").touch()
+        torta = self.pasta.parent / "2021025-OM1n-kodakdoublex-eleicoes"
+        torta.mkdir()
+        (torta / "a.jpg").touch()
+        with mock.patch.object(adotar, "exif_ler", return_value=self.exif), mock.patch.object(adotar, "aplicar"):
+            adotar.executar(self.cfg, self.eq, SimpleNamespace(folder=str(self.cfg.root / "2026"),
+                                                               unsent=False, dry_run=False, no_apply=False))
+        self.assertTrue(F.caminho(self.pasta).exists())
+        self.assertFalse(F.caminho(torta).exists())
+        self.assertFalse(F.caminho(lixeira).exists())
+
+
+class TestCheck(Base):
+    def test_pasta_inexistente_e_erro_e_lixeira_ignorada(self):
+        import os
+        from types import SimpleNamespace
+        from unittest import mock
+        from rolo.config import Config
+        from rolo.manutencao import checar, ignorada
+        from rolo.util import Erro
+        with mock.patch.dict(os.environ, {"FOTOS_ROOT": str(self.tmp / "acervo")}):
+            cfg = Config()
+        cfg.root.mkdir(parents=True)
+        with self.assertRaisesRegex(Erro, "não encontrada"):
+            checar(cfg, self.eq, SimpleNamespace(folder="2025", quick=True))
+        self.assertTrue(ignorada(cfg, cfg.root / "2026" / ".dtrash" / "files" / "x.jpg"))
+        self.assertTrue(ignorada(cfg, cfg.root / "_inbox" / "x.jpg"))
+        self.assertFalse(ignorada(cfg, cfg.root / "2026" / "08-agosto" / "r" / "x.jpg"))
 
 
 class TestDocumentacao(unittest.TestCase):

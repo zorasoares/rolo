@@ -2,7 +2,7 @@
 import argparse
 import sys
 
-from . import config, ia, importar, manutencao, metadados, publicar, status
+from . import adotar, config, ia, importar, manutencao, metadados, publicar, status
 from .equip import Equipamentos
 from .util import Erro
 
@@ -21,6 +21,9 @@ Fluxo de um rolo:
   (digiKam)                   revisar a tag ai:generated
 
 Onde estou: rolo status [FOLDER]
+Pasta organizada à mão antes do rolo: rolo adopt FOLDER (ou uma pasta de rolos, ex.: 2026)
+                              roll.yaml a partir do nome e do EXIF que já existe + apply (padroniza);
+                              fotos dadas como já enviadas
 Outros: rolo backup | rolo check [FOLDER] | rolo config
 FOLDER pode ser relativa ao acervo (2026/11-novembro/...) ou ao diretório atual.
 """
@@ -50,6 +53,14 @@ def montar_parser():
                    help="scans em ordem invertida (último arquivo = quadro 1): renomeia na ordem do filme "
                         "(sem a flag, pergunta)")
     s.add_argument("--exifnotes", help="JSON do Exif Notes, só para sugerir câmera/filme/título no menu")
+
+    s = sub.add_parser("adopt", help="traz para o fluxo pasta(s) organizada(s) à mão: roll.yaml a partir do nome "
+                                      "e do EXIF existente, sem renomear, e roda o apply (padroniza e reindexa o PhotoPrism)")
+    s.add_argument("folder", help="pasta do rolo, ou uma pasta acima (ex.: 2026) para adotar todas as que não têm roll.yaml")
+    s.add_argument("--unsent", action="store_true",
+                   help="as fotos ainda não foram enviadas (padrão: dá como já enviadas, e o `rolo albums` não as reenvia)")
+    s.add_argument("--dry-run", action="store_true", help="mostra o que faria, sem gravar")
+    s.add_argument("--no-apply", action="store_true", help="só cria o roll.yaml, sem rodar o `rolo apply`")
 
     s = sub.add_parser("sheet", help="cria/atualiza o roll.yaml a partir do Exif Notes")
     s.add_argument("folder")
@@ -93,7 +104,7 @@ def montar_parser():
 
 
 COMANDOS = {
-    "import": importar.executar, "sheet": metadados.ficha,
+    "import": importar.executar, "adopt": adotar.executar, "sheet": metadados.ficha,
     "apply": metadados.aplicar, "ai": ia.executar, "print": publicar.grafica,
     "albums": publicar.albums, "portfolio": publicar.albums, "backup": manutencao.backup, "check": manutencao.checar,
     "status": status.executar,

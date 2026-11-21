@@ -36,50 +36,82 @@ def backup(cfg, eq, args):
 RE_PASTA = re.compile(r"^(?P<data>\d{8})-(?P<resto>.+)$")
 
 
+def ignorada(cfg, caminho):
+    """Fora do fluxo: dentro de _inbox, _outbox, _workflow ou de uma pasta oculta (.dtrash do digiKam)."""
+    p = Path(caminho)
+    partes = p.relative_to(cfg.root).parts if p.is_relative_to(cfg.root) else p.parts
+    return any(x.startswith(("_", ".")) for x in partes)
+
+
+def _codigos(tabela):
+    """[(código na pasta, código atual)], incluindo legacy_codes, do mais longo ao mais curto."""
+    pares = [(c, c) for c in tabela] + [(old, c) for c, v in tabela.items() for old in v.get("legacy_codes") or []]
+    return sorted(pares, key=lambda p: len(p[0]), reverse=True)
+
+
+def ler_nome(eq, nome):
+    """Interpreta 'AAAAMMDD-CAMERA[-filme]-titulo' (aceita legacy_codes). None se fora do padrão.
+    Chaves: data_texto, date (ou None), camera e film (códigos atuais, ou None), camera_pasta e film_pasta
+    (o código como está escrito no nome), title."""
+    m = RE_PASTA.match(nome)
+    if not m:
+        return None
+    n = {"data_texto": m["data"], "date": None, "camera": None, "film": None, "title": None}
+    try:
+        n["date"] = dt.datetime.strptime(m["data"], "%Y%m%d").date()
+    except ValueError:
+        pass
+    resto = m["resto"]
+    par = next((p for p in _codigos(eq.cameras) if resto.lower().startswith(p[0].lower() + "-")), None)
+    if not par:
+        return n
+    n["camera"], n["camera_legado"], n["camera_pasta"] = par[1], par[0] != par[1], resto[:len(par[0])]
+    depois = resto[len(par[0]) + 1:]
+    if eq.digital(par[1]):
+        n["title"] = depois
+        return n
+    fp = next((p for p in _codigos(eq.films) if depois.lower().startswith(p[0].lower() + "-")), None)
+    if fp:
+        n["film"], n["film_legado"], n["title"] = fp[1], fp[0] != fp[1], depois[len(fp[0]) + 1:]
+        n["film_pasta"] = fp[0]
+    else:
+        n["film_texto"] = depois
+    return n
+
+
 def checar(cfg, eq, args):
     alvo = cfg.resolver(args.folder) if args.folder else cfg.root
+    if not alvo.is_dir():
+        raise Erro(f"Pasta não encontrada: {args.folder}")
     pastas = sorted({p.parent for p in alvo.rglob("*") if p.is_file() and p.suffix.lower() in EXT_IMAGEM
-                     and not any(x.startswith("_") for x in p.relative_to(cfg.root).parts)})
-    def codigos(tabela):
-        """[(código na pasta, código atual)], incluindo legacy_codes, do mais longo ao mais curto."""
-        pares = [(c, c) for c in tabela] + [(old, c) for c, v in tabela.items() for old in v.get("legacy_codes") or []]
-        return sorted(pares, key=lambda p: len(p[0]), reverse=True)
-
-    cams, films = codigos(eq.cameras), codigos(eq.films)
+                     and not ignorada(cfg, p)})
     problemas_total = 0
     for pasta in pastas:
         prob = []
-        rel = pasta.relative_to(cfg.root)
-        m = RE_PASTA.match(pasta.name)
-        camera = filme = None
-        if not m:
+        rel = pasta.relative_to(cfg.root) if pasta.is_relative_to(cfg.root) else pasta
+        n = ler_nome(eq, pasta.name)
+        camera = n["camera"] if n else None
+        if not n:
             prob.append("nome da pasta fora do padrão AAAAMMDD-CAMERA-filme-titulo")
         else:
-            try:
-                data = dt.datetime.strptime(m["data"], "%Y%m%d").date()
-                esperado = f"{data.year}/{data.month:02d}-{MESES[data.month - 1]}"
+            if n["date"]:
+                esperado = f"{n['date'].year}/{n['date'].month:02d}-{MESES[n['date'].month - 1]}"
                 if str(rel.parent) != esperado:
                     prob.append(f"deveria estar em {esperado}/")
-            except ValueError:
-                prob.append(f"data inválida '{m['data']}'")
-            resto = m["resto"]
-            par = next((p for p in cams if resto.lower().startswith(p[0].lower() + "-")), None)
-            camera = par[1] if par else None
+            else:
+                prob.append(f"data inválida '{n['data_texto']}'")
             if not camera:
                 prob.append(f"câmera não reconhecida (códigos: {', '.join(eq.cameras)})")
             else:
-                if par[0] != camera:
-                    prob.append(f"código antigo de câmera '{par[0]}' (atual: {camera})")
-                elif not resto.startswith(camera):
-                    prob.append(f"câmera em caixa diferente: '{resto[:len(camera)]}' (atual: {camera})")
+                if n["camera_legado"]:
+                    prob.append(f"código antigo de câmera '{n['camera_pasta']}' (atual: {camera})")
+                elif n["camera_pasta"] != camera:
+                    prob.append(f"câmera em caixa diferente: '{n['camera_pasta']}' (atual: {camera})")
                 if not eq.digital(camera):
-                    depois = resto[len(par[0]) + 1:]
-                    fp = next((p for p in films if depois.lower().startswith(p[0].lower() + "-")), None)
-                    filme = fp[1] if fp else None
-                    if not filme:
-                        prob.append(f"filme não reconhecido em '{depois}'")
-                    elif fp[0] != filme:
-                        prob.append(f"código antigo de filme '{fp[0]}' (atual: {filme})")
+                    if not n["film"]:
+                        prob.append(f"filme não reconhecido em '{n['film_texto']}'")
+                    elif n["film_legado"]:
+                        prob.append(f"código antigo de filme '{n['film_pasta']}' (atual: {n['film']})")
         sidecars = [p.name for p in pasta.iterdir() if p.suffix.lower() in (".xmp", ".acr")]
         if sidecars:
             prob.append(f"{len(sidecars)} sidecar(s) .xmp/.acr")

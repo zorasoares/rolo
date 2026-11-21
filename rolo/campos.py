@@ -121,9 +121,12 @@ def args_base(eq, rolo):
 
 def _lente(eq, rolo, n, q):
     """Lente do quadro (dict de equipment.yaml) ou None. Confere se a lente é da câmera do rolo.
+    Câmera de lente fixa: sempre a lente `fixed: true` dela, qualquer que seja a `lens` do quadro.
     No digital, só a `lens` do quadro/faixa (a do rolo não sobrescreve a lente que a câmera gravou)."""
+    if eq.camera(rolo["camera"]).get("fixed_lens"):
+        return next((L for L in eq.lenses.values() if L.get("fixed") and rolo["camera"] in L.get("cameras", [])), None)
     cod = q.get("lens") if eq.digital(rolo["camera"]) else (q.get("lens") or rolo.get("lens"))
-    if not cod or eq.camera(rolo["camera"]).get("fixed_lens"):
+    if not cod:
         return None
     L = eq.lente(cod)
     if rolo["camera"] not in L.get("cameras", []):
