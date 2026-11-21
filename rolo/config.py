@@ -4,6 +4,7 @@ Ordem de prioridade: variável de ambiente > ~/.config/rolo/config.yaml > padrã
 A mesma instalação roda no servidor e no PC; só muda a configuração.
 """
 import os
+import sys
 from pathlib import Path
 
 ARQUIVO = Path(os.environ.get("ROLO_CONFIG", "~/.config/rolo/config.yaml")).expanduser()
@@ -12,25 +13,30 @@ ARQUIVO = Path(os.environ.get("ROLO_CONFIG", "~/.config/rolo/config.yaml")).expa
 CHAVES = {
     "FOTOS_ROOT": ("/srv/data/fotos", "raiz do acervo (no PC: o ponto de montagem NFS)"),
     "ROLO_INBOX": ("{FOTOS_ROOT}/_inbox", "onde chegam os downloads do lab e os JSON do Exif Notes"),
-    "ROLO_OUTBOX": ("{FOTOS_ROOT}/_outbox", "JPGs exportados para gráfica e portfólio"),
+    "ROLO_OUTBOX": ("{FOTOS_ROOT}/_outbox", "JPGs exportados para a gráfica (print/) e os álbuns (albuns/)"),
     "ROLO_EQUIPMENT": ("{FOTOS_ROOT}/_workflow/equipment.yaml", "base de câmeras, lentes e filmes"),
     "ROLO_TAGS": ("{FOTOS_ROOT}/_workflow/tags.yaml", "vocabulário de tags que `rolo ai` pode usar"),
     "OLLAMA_HOST": ("http://localhost:11434", "servidor Ollama usado por `rolo ai`"),
     "ROLO_AI_MODEL": ("qwen2.5vl:7b", "modelo de visão do Ollama"),
     "ROLO_RCLONE_LAB": ("drive:", "remoto rclone usado para baixar as pastas compartilhadas do lab"),
     "ROLO_RCLONE_PRINT": ("drive:Gráfica", "destino dos JPGs da gráfica"),
-    "ROLO_RCLONE_GPHOTOS": ("gphotos:album/Portfólio", "álbum do Google Photos (vazio = não enviar)"),
+    "ROLO_GPHOTOS": ("gphotos:", "remoto rclone do Google Photos; cada álbum vai em album/<nome> (vazio = não enviar)"),
     "ROLO_RCLONE_BACKUP": ("drive:Fotos", "destino do backup completo (vazio = não enviar)"),
-    "ROLO_IMMICH_ALBUM": ("Portfólio", "álbum do Immich (vazio = não enviar; requer `immich login`)"),
+    "ROLO_IMMICH": ("on", "envia os álbuns ao Immich: on ou vazio (requer `immich login`)"),
     "ROLO_PHOTOPRISM_INDEX_CMD": ("", "comando para reindexar uma pasta; {folder} = caminho relativo ao acervo"),
     "ROLO_DIGIKAM_DB": ("", "arquivo digikam4.db (só no PC) para incluir no backup"),
 }
+
+# chaves antigas -> nova (vazia na antiga = destino desligado também na nova)
+ANTIGAS = {"ROLO_RCLONE_GPHOTOS": "ROLO_GPHOTOS", "ROLO_IMMICH_ALBUM": "ROLO_IMMICH"}
 
 
 def _carregar_arquivo():
     if ARQUIVO.exists():
         from .yamlio import carregar
-        return {k.upper(): str(v) for k, v in carregar(ARQUIVO).items() if v is not None}
+        # chave antiga sem valor (ROLO_IMMICH_ALBUM:) conta como vazia: era o jeito de desligar o envio
+        return {k.upper(): "" if v is None else str(v) for k, v in carregar(ARQUIVO).items()
+                if v is not None or k.upper() in ANTIGAS}
     return {}
 
 
@@ -46,6 +52,12 @@ class Config:
                 brutos[chave], self.origem[chave] = arquivo[chave], "config.yaml"
             else:
                 brutos[chave], self.origem[chave] = padrao, "padrão"
+        for antiga, nova in ANTIGAS.items():
+            if antiga in os.environ or antiga in arquivo:
+                valor = os.environ.get(antiga, arquivo.get(antiga))
+                print(f"[aviso] {antiga} não é mais usada; use {nova} (veja `rolo config`).", file=sys.stderr)
+                if not valor.strip() and self.origem[nova] == "padrão":
+                    brutos[nova], self.origem[nova] = "", antiga
         root = os.path.expanduser(brutos["FOTOS_ROOT"])
         self.valores = {k: os.path.expanduser(v.replace("{FOTOS_ROOT}", root)) for k, v in brutos.items()}
 

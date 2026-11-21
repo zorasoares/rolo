@@ -7,7 +7,7 @@ from .util import Erro
 # Campos aceitos em ranges e frames do roll.yaml
 FIELDS = ["lens", "focal_length", "aperture", "shutter", "flash", "light", "date",
           "lat", "lon", "location", "sublocation", "city", "state", "country",
-          "title", "description", "people", "keywords", "filters", "exposures"]
+          "title", "description", "people", "keywords", "filters", "exposures", "album", "personal"]
 
 LIGHT = {"daylight": "Daylight", "cloudy": "Cloudy", "shade": "Shade", "tungsten": "Tungsten",
          "fluorescent": "Fluorescent", "flash": "Flash", "unknown": "Unknown"}
@@ -119,23 +119,57 @@ def args_base(eq, rolo):
     return args
 
 
+def _lente(eq, rolo, n, q):
+    """Lente do quadro (dict de equipment.yaml) ou None. Confere se a lente é da câmera do rolo.
+    No digital, só a `lens` do quadro/faixa (a do rolo não sobrescreve a lente que a câmera gravou)."""
+    cod = q.get("lens") if eq.digital(rolo["camera"]) else (q.get("lens") or rolo.get("lens"))
+    if not cod or eq.camera(rolo["camera"]).get("fixed_lens"):
+        return None
+    L = eq.lente(cod)
+    if rolo["camera"] not in L.get("cameras", []):
+        raise Erro(f"Quadro {n}: lente {cod} não é da câmera {rolo['camera']} "
+                   f"(acrescente {rolo['camera']} em lenses.{cod}.cameras no equipment.yaml, se ela usa adaptador)")
+    return L
+
+
+def args_lente(L, q):
+    args = [f"-LensMake={L['make']}", f"-LensModel={L['model']}",
+            f"-Lens={L['make']} {L['model']}", f"-MaxApertureValue={L['max_aperture']}",
+            f"-FocalLength={q.get('focal_length') or L['focal_length']}"]
+    if L.get("serial"):
+        args.append(f"-LensSerialNumber={L['serial']}")
+    return args
+
+
+def album_de(eq, rolo, n_arquivo, q):
+    """Nome completo do álbum de uma foto: '<Prefixo> - <sessão>'.
+    Prefixo: filme → Analog; digital com lente vintage → Vintage; outro digital → Photography;
+    digital com personal: true → sem prefixo. Sessão: `album` da faixa/quadro, senão '<ano> <título do rolo>'."""
+    sessao = str(q.get("album") or "").strip()
+    if not sessao:
+        titulo = rolo.get("title") or rolo.get("folder") or ""
+        sessao = f"{str(rolo['date'])[:4]} {titulo}".strip()
+    if not eq.digital(rolo["camera"]):
+        prefixo = "Analog"
+    elif q.get("personal"):
+        prefixo = None
+    else:
+        L = _lente(eq, rolo, n_arquivo, q)
+        prefixo = "Vintage" if L and L.get("vintage") else "Photography"
+    nome = f"{prefixo} - {sessao}" if prefixo else sessao
+    return nome.replace("/", "-")
+
+
 def args_quadro(eq, rolo, n, q):
     """Tags de um quadro (já mesclado)."""
     digital = eq.digital(rolo["camera"])
     args = [f"-ImageNumber={n}"]
     fuso = eq.conv.get("timezone", "")
+    L = _lente(eq, rolo, n, q)
+    if L:
+        # no digital, só com lente explícita (vintage adaptada): a câmera não grava a lente
+        args += args_lente(L, q)
     if not digital:
-        cam = eq.camera(rolo["camera"])
-        lente_cod = q.get("lens") or rolo.get("lens")
-        if lente_cod and not cam.get("fixed_lens"):
-            L = eq.lente(lente_cod)
-            if rolo["camera"] not in L.get("cameras", []):
-                raise Erro(f"Quadro {n}: lente {lente_cod} não é da câmera {rolo['camera']}")
-            args += [f"-LensMake={L['make']}", f"-LensModel={L['model']}",
-                     f"-Lens={L['make']} {L['model']}", f"-MaxApertureValue={L['max_aperture']}",
-                     f"-FocalLength={q.get('focal_length') or L['focal_length']}"]
-            if L.get("serial"):
-                args.append(f"-LensSerialNumber={L['serial']}")
         if q.get("aperture"):
             args += [f"-FNumber={q['aperture']}", f"-ApertureValue={q['aperture']}"]
         if q.get("shutter"):
@@ -171,9 +205,15 @@ def args_quadro(eq, rolo, n, q):
                  f"-IPTC:Caption-Abstract={d[:2000]}"]
     if q.get("people"):
         args += _lista("XMP-iptcExt:PersonInImage", q["people"])
+    # sem album/personal, limpa o que um apply anterior gravou
+    args.append(f"-XMP-iptcExt:Event={q.get('album') or ''}")
     kws = list(q.get("keywords", []))
+    if q.get("personal"):
+        kws.append("personal")
     kws += [f"filter:{f}" for f in q.get("filters", [])]
     if int(q.get("exposures", 1) or 1) > 1:
         kws.append("multiple-exposure")
     args += _lista("XMP-dc:Subject", kws)
+    if not q.get("personal"):
+        args.append("-XMP-dc:Subject-=personal")
     return args

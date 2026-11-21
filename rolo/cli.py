@@ -14,10 +14,11 @@ Fluxo de um rolo:
   rolo print FOLDER           exporta as verdes e envia para o Drive da gráfica
   rolo sheet FOLDER --exifnotes X.json
                               monta o roll.yaml com o Exif Notes; complete com a skill roll-sheet
-  rolo apply FOLDER           grava o roll.yaml nos arquivos
-  rolo ai FOLDER              descrições por IA (Ollama) onde ainda falta
+  rolo apply FOLDER           grava o roll.yaml nos arquivos (e reindexa o PhotoPrism)
+  rolo albums FOLDER          exporta as não recusadas ainda não enviadas, um álbum por sessão
+                              ("Analog - 2026 Halloween") → Immich + Google Photos, uma vez só
+  rolo ai FOLDER              descrições por IA (Ollama) onde ainda falta (opcional)
   (digiKam)                   revisar a tag ai:generated
-  rolo portfolio FOLDER       exporta as não recusadas com EXIF completo → Immich + Google Photos
 
 Onde estou: rolo status [FOLDER]
 Outros: rolo backup | rolo check [FOLDER] | rolo config
@@ -78,10 +79,12 @@ def montar_parser():
     s.add_argument("folder")
     s.add_argument("--no-upload", action="store_true", help="só exporta para _outbox/")
 
-    s = sub.add_parser("portfolio", help="exporta as fotos não recusadas (ou só aceitas, se configurado), com EXIF completo, e envia")
+    s = sub.add_parser("albums", aliases=["portfolio"],
+                       help="exporta as fotos não recusadas ainda não enviadas, um álbum por sessão, e envia uma vez "
+                            "ao Immich e ao Google Photos")
     s.add_argument("folder")
-    s.add_argument("--dry-run", action="store_true", help="exporta e confere, mas não envia")
-    s.add_argument("--force", action="store_true", help="exporta mesmo com EXIF incompleto/IA não revisada")
+    s.add_argument("--dry-run", action="store_true", help="exporta e confere no staging, mas não envia nem registra")
+    s.add_argument("--force", action="store_true", help="exporta mesmo com EXIF incompleto")
 
     s = sub.add_parser("backup", help="backup do acervo (rclone) e do banco do digiKam")
     s.add_argument("--dry-run", action="store_true")
@@ -95,7 +98,7 @@ def montar_parser():
 COMANDOS = {
     "download": manutencao.baixar, "import": importar.executar, "sheet": metadados.ficha,
     "apply": metadados.aplicar, "ai": ia.executar, "print": publicar.grafica,
-    "portfolio": publicar.portfolio, "backup": manutencao.backup, "check": manutencao.checar,
+    "albums": publicar.albums, "portfolio": publicar.albums, "backup": manutencao.backup, "check": manutencao.checar,
     "status": status.executar,
 }
 

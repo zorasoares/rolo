@@ -1,7 +1,7 @@
 """rolo status: em que etapa do fluxo cada rolo está.
 
 Nada é marcado à mão: a etapa é deduzida do roll.yaml, do EXIF dos arquivos (pick, etiqueta, GPS,
-ai:generated), do _outbox e do .rolo-history.yaml (envios de print/portfolio e último apply).
+ai:generated), do _outbox e do .rolo-history.yaml (envios de print/albums e último apply).
 """
 from pathlib import Path
 
@@ -132,6 +132,11 @@ def avaliar(cfg, eq, pasta):
     e.comando = f"rolo apply {rel}"
     etapas.append(e)
 
+    # álbuns: Immich + Google Photos, logo depois do apply (a IA não é obrigatória)
+    modo = eq.conv.get("portfolio_pick")
+    eleg = [a for a in arqs if (picks[a] == "accepted" if modo == "accepted" else picks[a] != "rejected")]
+    etapas.append(etapa_albuns(hist, eleg, rel))
+
     # ai: não recusadas sem descrição
     validas = [(n, a) for n, a in enumerate(arqs, 1) if picks[a] != "rejected"]
     sem_desc = [n for n, a in validas
@@ -145,25 +150,29 @@ def avaliar(cfg, eq, pasta):
     etapas.append(Etapa("revisar", PENDENTE if com_ai else OK,
                         f"{len(com_ai)} com {TAG_AI} {_faixas(com_ai)}" if com_ai else "nada a revisar",
                         f"digiKam: filtrar a tag {TAG_AI}, revisar e remover a tag"))
-
-    # portfolio
-    modo = eq.conv.get("portfolio_pick")
-    eleg = [a for a in arqs if (picks[a] == "accepted" if modo == "accepted" else picks[a] != "rejected")]
-    h = hist.get("portfolio") or {}
-    if not h:
-        exportado = (cfg.outbox / "portfolio" / pasta.name).is_dir()
-        e = Etapa("portfolio", PENDENTE, "exportado, mas envio não registrado" if exportado else "nunca enviado")
-    else:
-        faltam = [a for a in eleg if a.stem not in set(h.get("files") or [])]
-        if faltam:
-            e = Etapa("portfolio", PENDENTE, f"{len(faltam)} foto(s) ainda não enviada(s) (último envio: {h['at']})")
-        elif (hist.get("apply") or {}).get("at", "") > h["at"]:
-            e = Etapa("portfolio", PENDENTE, f"`rolo apply` rodou depois do envio de {h['at']}: reenvie")
-        else:
-            e = Etapa("portfolio", OK, f"{len(h['files'])} foto(s) enviada(s) em {h['at']}")
-    e.comando = f"rolo portfolio {rel}"
-    etapas.append(e)
     return etapas
+
+
+def etapa_albuns(hist, eleg, rel):
+    """Etapa "álbuns" a partir do histórico `albums` (o `portfolio` antigo conta como já enviado)."""
+    h, legado = hist.get("albums") or {}, hist.get("portfolio") or {}
+    enviadas = set(h.get("files") or []) | set(legado.get("files") or [])
+    quando = max(h.get("at", ""), legado.get("at", ""))
+    faltam = [a for a in eleg if a.stem not in enviadas]
+    if not quando:
+        e = Etapa("álbuns", PENDENTE, "nunca enviado")
+    elif faltam:
+        e = Etapa("álbuns", PENDENTE, f"{len(faltam)} foto(s) nova(s) para enviar (último envio: {quando})")
+    else:
+        n_alb = len(h.get("albums") or {})
+        detalhe = f"{len(enviadas & {a.stem for a in eleg})} foto(s) enviada(s)"
+        detalhe += f" em {n_alb} álbum(ns)" if n_alb else ""
+        detalhe += f", último envio {quando}"
+        if (hist.get("apply") or {}).get("at", "") > quando:
+            detalhe += " · ⚠ dados antigos no Immich/Google (apply depois do envio)"
+        e = Etapa("álbuns", OK, detalhe)
+    e.comando = f"rolo albums {rel}"
+    return e
 
 
 def atual(etapas):
