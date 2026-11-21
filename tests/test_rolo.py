@@ -124,6 +124,7 @@ class TestConfig(Base):
         from rolo.config import Config
         (self.tmp / "acervo" / "_inbox" / "rolo").mkdir(parents=True)
         (self.tmp / "cwd" / "rolo").mkdir(parents=True)
+        (self.tmp / "acervo" / "rolo").mkdir()  # para "../rolo" a partir de _inbox/ existir e precisar ser ignorado
         with mock.patch.dict(os.environ, {"FOTOS_ROOT": str(self.tmp / "acervo")}):
             cfg = Config()
         anterior = os.getcwd()
@@ -131,8 +132,57 @@ class TestConfig(Base):
         try:
             self.assertEqual(cfg.resolver("rolo", cfg.inbox), (cfg.inbox / "rolo").resolve())
             self.assertEqual(cfg.resolver("rolo"), (self.tmp / "cwd" / "rolo").resolve())
+            # explicitamente relativo: sempre o diretório atual, mesmo existindo em _inbox/
+            self.assertEqual(cfg.resolver("./rolo", cfg.inbox), (self.tmp / "cwd" / "rolo").resolve())
+            self.assertEqual(cfg.resolver(".", cfg.inbox), (self.tmp / "cwd").resolve())
+            os.chdir(self.tmp / "cwd" / "rolo")
+            self.assertEqual(cfg.resolver("../rolo", cfg.inbox), (self.tmp / "cwd" / "rolo").resolve())
         finally:
             os.chdir(anterior)
+
+
+class TestImportar(Base):
+    """Dentro de _inbox/ os scans são movidos e a subpasta vazia é apagada; fora, copiados e a origem fica."""
+
+    def importar(self, origem, criar=True):
+        import argparse
+        import os
+        from unittest import mock
+        from rolo import importar
+        from rolo.config import Config
+        with mock.patch.dict(os.environ, {"FOTOS_ROOT": str(self.tmp / "acervo")}):
+            cfg = Config()
+        cfg.inbox.mkdir(parents=True, exist_ok=True)
+        origem = origem(cfg)
+        if criar:
+            origem.mkdir(parents=True, exist_ok=True)
+            for n in (1, 2):
+                (origem / f"scan{n}.jpg").write_bytes(b"x")
+        args = argparse.Namespace(inbox=str(origem), exifnotes=None, camera="OM1n", film="kodakgold200",
+                                  lens=None, iso=None, date="2026-11-15", title="teste", reversed=False)
+        with mock.patch.object(importar, "precisa"), mock.patch.object(importar, "interativo", return_value=False), \
+             mock.patch.object(importar, "exif_gravar"):
+            destino = importar.executar(cfg, self.eq, args)
+        self.assertEqual(len(list(destino.glob("*.jpg"))), 2)
+        return cfg, origem
+
+    def test_fora_de_inbox_copia_e_mantem_origem(self):
+        _, origem = self.importar(lambda cfg: self.tmp / "downloads" / "rolo12")
+        self.assertEqual(sorted(p.name for p in origem.iterdir()), ["scan1.jpg", "scan2.jpg"])
+
+    def test_subpasta_de_inbox_move_e_apaga(self):
+        _, origem = self.importar(lambda cfg: cfg.inbox / "rolo12")
+        self.assertFalse(origem.exists())
+
+    def test_raiz_de_inbox_move_mas_nao_apaga(self):
+        cfg, origem = self.importar(lambda cfg: cfg.inbox)
+        self.assertTrue(cfg.inbox.is_dir())
+        self.assertEqual(list(origem.glob("*.jpg")), [])
+
+    def test_pasta_inexistente_e_erro(self):
+        from rolo.util import Erro
+        with self.assertRaises(Erro):
+            self.importar(lambda cfg: self.tmp / "nao-existe", criar=False)
 
 
 class TestPick(unittest.TestCase):

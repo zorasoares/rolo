@@ -17,7 +17,6 @@ ROLO_PHOTOPRISM_INDEX_CMD: ssh servidor 'cd /opt/photoprism && docker compose ex
 # ROLO_PHOTOPRISM_INDEX_CMD: cd /opt/photoprism && docker compose exec -T photoprism photoprism index {folder}
 
 # ---------------- destinos (iguais nas duas máquinas)
-ROLO_RCLONE_LAB: "drive:"
 ROLO_RCLONE_PRINT: "drive:Gráfica"
 ROLO_GPHOTOS: "gphotos:"                 # remoto rclone; `rolo albums` cria album/<nome> (vazio = não enviar)
 ROLO_RCLONE_BACKUP: "drive:Fotos"

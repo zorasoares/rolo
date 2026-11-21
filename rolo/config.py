@@ -12,13 +12,12 @@ ARQUIVO = Path(os.environ.get("ROLO_CONFIG", "~/.config/rolo/config.yaml")).expa
 # chave -> (padrão, descrição)
 CHAVES = {
     "FOTOS_ROOT": ("/srv/data/fotos", "raiz do acervo (no PC: o ponto de montagem NFS)"),
-    "ROLO_INBOX": ("{FOTOS_ROOT}/_inbox", "onde chegam os downloads do lab e os JSON do Exif Notes"),
+    "ROLO_INBOX": ("{FOTOS_ROOT}/_inbox", "opcional: pastas de scans para o menu do import e JSON do Exif Notes"),
     "ROLO_OUTBOX": ("{FOTOS_ROOT}/_outbox", "JPGs exportados para a gráfica (print/) e os álbuns (albuns/)"),
     "ROLO_EQUIPMENT": ("{FOTOS_ROOT}/_workflow/equipment.yaml", "base de câmeras, lentes e filmes"),
     "ROLO_TAGS": ("{FOTOS_ROOT}/_workflow/tags.yaml", "vocabulário de tags que `rolo ai` pode usar"),
     "OLLAMA_HOST": ("http://localhost:11434", "servidor Ollama usado por `rolo ai`"),
     "ROLO_AI_MODEL": ("qwen2.5vl:7b", "modelo de visão do Ollama"),
-    "ROLO_RCLONE_LAB": ("drive:", "remoto rclone usado para baixar as pastas compartilhadas do lab"),
     "ROLO_RCLONE_PRINT": ("drive:Gráfica", "destino dos JPGs da gráfica"),
     "ROLO_GPHOTOS": ("gphotos:", "remoto rclone do Google Photos; cada álbum vai em album/<nome> (vazio = não enviar)"),
     "ROLO_RCLONE_BACKUP": ("drive:Fotos", "destino do backup completo (vazio = não enviar)"),
@@ -77,10 +76,14 @@ class Config:
         return Path(self["ROLO_OUTBOX"])
 
     def resolver(self, caminho, *bases):
-        """Aceita caminho absoluto, relativo a `bases` (nesta ordem), ao diretório atual ou ao acervo."""
+        """Aceita caminho absoluto, relativo a `bases` (nesta ordem), ao diretório atual ou ao acervo.
+
+        `.`, `./x` e `../x` são sempre relativos ao diretório atual."""
         p = Path(caminho).expanduser()
         if p.is_absolute():
             return p.resolve()
+        if p.parts[:1] in ((), (".",), ("..",)) or str(caminho).startswith("./"):
+            return p.resolve()  # ".", "./x", "../x": explicitamente relativo ao diretório atual
         for base in bases:
             if (Path(base) / p).exists():
                 return (Path(base) / p).resolve()

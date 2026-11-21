@@ -80,6 +80,8 @@ def executar(cfg, eq, args):
         sugestao = F.sugestoes_rolo(eq, F.ler_exifnotes(cfg.resolver(args.exifnotes, cfg.inbox)))
     if args.inbox:
         args.inbox = cfg.resolver(args.inbox, cfg.inbox)
+        if not args.inbox.is_dir():
+            raise Erro(f"Pasta não encontrada: {args.inbox}")
     if interativo():
         _menu(cfg, eq, args, sugestao)
     faltando = [n for n in ("inbox", "camera", "date", "title") if not getattr(args, n)]
@@ -111,6 +113,8 @@ def executar(cfg, eq, args):
     prefixo = nome_pasta(eq, data, args.camera, args.film, args.title)[9:].lower()
     digitos = max(2, len(str(len(arquivos))))
     raws = [a for a in arquivos if a.suffix.lower() == ".orf"]
+    # dentro de _inbox/ (inclusive scans soltos na raiz dela) os arquivos são movidos; fora, copiados
+    mover = origem.resolve().is_relative_to(cfg.inbox.resolve())
 
     print(f"\n→ {cfg.relativo(destino)}/  ({len(arquivos)} arquivos)")
     print(f"  {prefixo}_{data:%Y%m%d}_{1:0{digitos}d}{arquivos[0].suffix.lower().replace('.orf', '.dng')}"
@@ -118,6 +122,8 @@ def executar(cfg, eq, args):
     if invertido:
         print(f"  ordem invertida: _{1:0{digitos}d} ← {arquivos[0].name} … "
               f"_{len(arquivos):0{digitos}d} ← {arquivos[-1].name}")
+    if not mover:
+        print(f"  fora de _inbox/: os arquivos são copiados, os originais ficam em {cfg.relativo(origem)}")
     if raws:
         print(f"  {len(raws)} ORF serão convertidos para DNG (os ORF ficam em {cfg.relativo(origem)})")
     if destino.exists() and any(destino.iterdir()):
@@ -135,8 +141,10 @@ def executar(cfg, eq, args):
             novo = destino / f"{prefixo}_{data:%Y%m%d}_{i:0{digitos}d}{ext}"
             if a.suffix.lower() == ".orf":
                 rodar(["dnglab", "convert", str(a), str(novo)], capture_output=True)
-            else:
+            elif mover:
                 shutil.move(a, novo)
+            else:
+                shutil.copy2(a, novo)
             novos.append((i, a.name, novo))
             print(f"\r  arquivos: {i}/{len(arquivos)}", end="", flush=True)
         print()
@@ -153,8 +161,8 @@ def executar(cfg, eq, args):
         exif_gravar(lotes)
         F.gravar(destino, {"roll": rolo})
 
-    sobra = [p for p in origem.iterdir() if p.is_file()] if origem.exists() else []
-    if not sobra:
+    # só apaga subpastas de _inbox/ que ficaram vazias; nunca a própria _inbox/ nem uma pasta do usuário
+    if mover and origem.resolve() != cfg.inbox.resolve() and origem.exists() and not any(origem.iterdir()):
         origem.rmdir()
     print(f"\nPronto: {cfg.relativo(destino)}")
     print("Próximo: classificar no digiKam → `rolo print " + str(cfg.relativo(destino)) + "`")

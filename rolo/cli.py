@@ -8,8 +8,8 @@ from .util import Erro
 
 AJUDA = """\
 Fluxo de um rolo:
-  rolo download LINK          baixa os scans do Drive do lab para _inbox/
-  rolo import                 menu: câmera/filme/lente da base → pasta, nomes, DNG, EXIF base
+  rolo import [PASTA]         menu: câmera/filme/lente da base → pasta, nomes, DNG, EXIF base
+                              (PASTA fora de _inbox/ é copiada; dentro, movida)
   (digiKam)                   classificar: nota, pick (recusadas ficam de fora), etiqueta verde (gráfica)
   rolo print FOLDER           exporta as verdes e envia para o Drive da gráfica
   rolo sheet FOLDER --exifnotes X.json
@@ -37,12 +37,9 @@ def montar_parser():
     s.add_argument("folder", nargs="?", help="pasta do rolo (padrão: a pasta atual, se tiver roll.yaml)")
     s.add_argument("--all", action="store_true", help="no panorama, mostra também os rolos concluídos")
 
-    s = sub.add_parser("download", help="baixa uma pasta do Drive do lab")
-    s.add_argument("link", help="link da pasta do Google Drive ou caminho rclone (remoto:pasta)")
-    s.add_argument("--name", help="nome da pasta em _inbox/")
-
     s = sub.add_parser("import", help="cria a pasta do rolo, renomeia e grava o EXIF base")
-    s.add_argument("inbox", nargs="?", help="pasta em _inbox/ (sem isso, mostra um menu)")
+    s.add_argument("inbox", nargs="?", help="pasta com os scans: em _inbox/ (movida) ou qualquer outra, ex.: . (copiada); "
+                                             "sem isso, menu com as pastas de _inbox/")
     s.add_argument("--camera", help="código da câmera (equipment.yaml)")
     s.add_argument("--film", help="código do filme")
     s.add_argument("--lens", help="código da lente padrão")
@@ -96,7 +93,7 @@ def montar_parser():
 
 
 COMANDOS = {
-    "download": manutencao.baixar, "import": importar.executar, "sheet": metadados.ficha,
+    "import": importar.executar, "sheet": metadados.ficha,
     "apply": metadados.aplicar, "ai": ia.executar, "print": publicar.grafica,
     "albums": publicar.albums, "portfolio": publicar.albums, "backup": manutencao.backup, "check": manutencao.checar,
     "status": status.executar,
